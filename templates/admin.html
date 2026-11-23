@@ -12,8 +12,8 @@ input{width:100%}label{display:block;margin:12px 0 5px}.notice{padding:12px;bord
 .receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
 small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 </style></head><body><div class="box">
-<a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes · DEMOSTRACIÓN</h2>
-<p>Sin dinero real ni boletos válidos. El envío de fotografías de boletos se realiza manualmente en WhatsApp.</p>
+<a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes</h2>
+<p>Verifica el ingreso bancario antes de aprobar. Envía manualmente las fotografías de los boletos físicos por WhatsApp.</p>
 <div class="card"><button id="load">Actualizar solicitudes</button><span id="stats"></span></div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
 <h2>Solicitudes nuevas (cantidad variable)</h2><div id="records">Cargando...</div>
@@ -47,14 +47,14 @@ async function load(){
    c.appendChild(el('h3',o.id));
    para(c,(o.name||'')+' · '+(o.phone||'')+' · '+o.quantity+' boleto(s) · '+money(o.total));
    para(c,'Dirección: '+o.address);
-   para(c,'Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
+   para(c,'Banco: '+(o.bank==='banreservas'?'Banreservas':o.bank==='popular'?'Banco Popular':'No indicado (solicitud anterior)')+' · Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
    para(c,'Estado actual: '+o.status);
    const receipt=el('a','Ver comprobante');receipt.href='/api/purchase-requests/'+encodeURIComponent(o.id)+'/receipt';receipt.target='_blank';receipt.rel='noopener noreferrer';receipt.className='action';
    c.appendChild(receipt);
-   const img=el('img');img.className='receipt';img.alt='Comprobante de prueba';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
+   const img=el('img');img.className='receipt';img.alt='Comprobante de pago';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
    const lab=el('label','Números impresos de los boletos físicos (separados por comas)');c.appendChild(lab);
    const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=500;c.appendChild(numbers);
-   const status=choice([['pending','Pendiente'],['approved','Pago aprobado (simulado)'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp (simulado)']],o.status);
+   const status=choice([['pending','Pendiente'],['approved','Pago aprobado'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp']],o.status);
    const save=btn('Guardar estado',async()=>{
     save.disabled=true;
     try{

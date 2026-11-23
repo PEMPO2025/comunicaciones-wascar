@@ -46,6 +46,8 @@ def init():
             printed_ticket_numbers TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        c.execute("ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS bank TEXT")
+
 init()
 
 def admin_required(f):
@@ -136,6 +138,10 @@ def create_purchase_request():
     address = request.form.get('address', '').strip()[:200]
     reference = request.form.get('reference', '').strip()[:100]
     method = request.form.get('method', '')
+    bank = request.form.get('bank', '')
+    if bank not in ('banreservas', 'popular'):
+        return jsonify(error='Selecciona el banco al que realizaste el pago.'), 400
+
     if request.form.get('adult') != 'true':
         return jsonify(error='Debes confirmar mayoría de edad.'), 400
     try:
@@ -159,17 +165,17 @@ def create_purchase_request():
     total = quantity * PRICE_PER_TICKET
     with conn() as c:
         c.execute("""INSERT INTO purchase_requests
-            (id,name,phone,address,payment_method,payment_reference,quantity,unit_price,total,receipt_data,receipt_mime)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (ident,name,phone,address,method,reference,quantity,PRICE_PER_TICKET,total,raw,mime))
-    return jsonify(id=ident,quantity=quantity,unit_price=PRICE_PER_TICKET,total=total,status='pending',demo=True), 201
+            (id,name,phone,address,payment_method,payment_reference,quantity,unit_price,total,receipt_data,receipt_mime,bank)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (ident,name,phone,address,method,reference,quantity,PRICE_PER_TICKET,total,raw,mime,bank))
+    return jsonify(id=ident,quantity=quantity,unit_price=PRICE_PER_TICKET,total=total,status='pending',demo=False), 201
 
 @app.get('/api/purchase-requests')
 @admin_required
 def list_purchase_requests():
     with conn() as c:
         rows = c.execute("""SELECT id,name,phone,address,payment_method,payment_reference,
-            quantity,unit_price,total,status,printed_ticket_numbers,created_at,updated_at
+            quantity,unit_price,total,status,printed_ticket_numbers,bank,created_at,updated_at
             FROM purchase_requests ORDER BY created_at DESC LIMIT 500""").fetchall()
     for r in rows:
         r['created_at'] = r['created_at'].isoformat()
