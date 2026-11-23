@@ -12,8 +12,8 @@ input{width:100%}label{display:block;margin:12px 0 5px}.notice{padding:12px;bord
 .receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
 small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 </style></head><body><div class="box">
-<a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes · DEMOSTRACIÓN</h2>
-<p>Sin dinero real ni boletos válidos. El envío de fotografías de boletos se realiza manualmente en WhatsApp.</p>
+<a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de ventas y solicitudes</h2>
+<p>Comprueba cada ingreso en el banco antes de aprobarlo. Adjunta manualmente por WhatsApp las fotografías de los boletos físicos.</p>
 <div class="card"><button id="load">Actualizar solicitudes</button><span id="stats"></span></div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
 <h2>Solicitudes nuevas (cantidad variable)</h2><div id="records">Cargando...</div>
@@ -40,20 +40,21 @@ async function load(){
  try{
   const [data,old]=await Promise.all([api('/api/purchase-requests'),api('/api/orders')]);
   const records=$('records');records.replaceChildren();
-  $('stats').textContent=data.orders.length+' nuevas · '+old.orders.length+' antiguas · Actualizado: '+new Date().toLocaleTimeString('es-DO');
-  if(!data.orders.length)records.textContent='No hay solicitudes nuevas.';
-  for(const o of data.orders){
+  const live=data.orders.filter(o=>o.is_live);const demos=data.orders.filter(o=>!o.is_live);
+  $('stats').textContent=live.length+' reales · '+demos.length+' pruebas · '+old.orders.length+' antiguas · Actualizado: '+new Date().toLocaleTimeString('es-DO');
+  if(!live.length)records.textContent='No hay solicitudes reales.';
+  for(const o of live){
    const c=el('article');c.className='card';
    c.appendChild(el('h3',o.id));
    para(c,(o.name||'')+' · '+(o.phone||'')+' · '+o.quantity+' boleto(s) · '+money(o.total));
    para(c,'Dirección: '+o.address);
-   para(c,'Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
+   para(c,'Banco: '+(o.bank==='banreservas'?'Banreservas':'Banco Popular')+' · Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
    para(c,'Estado actual: '+o.status);
    const receipt=el('a','Ver comprobante');receipt.href='/api/purchase-requests/'+encodeURIComponent(o.id)+'/receipt';receipt.target='_blank';receipt.rel='noopener noreferrer';receipt.className='action';
    c.appendChild(receipt);
    const img=el('img');img.className='receipt';img.alt='Comprobante de prueba';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
    const lab=el('label','Números impresos de los boletos físicos (separados por comas)');c.appendChild(lab);
-   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=500;c.appendChild(numbers);
+   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=2000;c.appendChild(numbers);
    const status=choice([['pending','Pendiente'],['approved','Pago aprobado (simulado)'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp (simulado)']],o.status);
    const save=btn('Guardar estado',async()=>{
     save.disabled=true;
@@ -62,12 +63,13 @@ async function load(){
      notify('Estado actualizado: '+o.id,'success');await load();
     }catch(e){notify('No se pudo guardar: '+e.message,'error');}finally{save.disabled=false;}
    });
-   const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}if(!numbers.value.trim()){notify('Escribe los números impresos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,numbers.value.trim());});
+   const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(o.status)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}if(!o.printed_ticket_numbers){notify('Guarda los números impresos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,o.printed_ticket_numbers);});
    c.appendChild(el('p','Para enviar: confirma el pago, guarda el estado Aprobado, registra los números impresos y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
    c.append(status,save,send);records.appendChild(c);
   }
   const legacy=$('legacy');legacy.replaceChildren();
-  if(!old.orders.length)legacy.textContent='Sin registros anteriores.';
+  if(demos.length){const info=el('p',demos.length+' solicitudes de prueba anteriores, conservadas y excluidas de las ventas reales.');legacy.appendChild(info);}
+  if(!old.orders.length&&!demos.length)legacy.textContent='Sin registros anteriores.';
   for(const o of old.orders){
    const c=el('article');c.className='card';c.appendChild(el('b',o.id));
    para(c,o.name+' · '+o.phone+' · Dirección: '+o.address);
