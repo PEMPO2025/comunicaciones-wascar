@@ -197,13 +197,23 @@ def update_purchase_status(order_id):
     new_status = data.get('status')
     if new_status not in ('pending','approved','rejected','delivered'):
         return jsonify(error='Estado inválido'), 400
-    raw_numbers = str(data.get('printed_ticket_numbers') or '').strip()
-    if raw_numbers and not re.fullmatch(r'\\d+(?:\\s*[,;\\n]\\s*\\d+)*', raw_numbers):
-        return jsonify(error='Escribe solamente números separados por comas.'), 400
-    parts = [p.strip() for p in re.split(r'[,;\\n]', raw_numbers)] if raw_numbers else []
-    canonical = [str(int(p)) for p in parts]
-    if any(int(p) == 0 for p in parts):
-        return jsonify(error='Los números de boletos deben ser mayores que cero.'), 400
+    # Cada casilla del panel corresponde a un boleto físico.
+    supplied = data.get('ticket_numbers')
+    if supplied is None:
+        legacy = str(data.get('printed_ticket_numbers') or '').strip()
+        supplied = [x.strip() for x in re.split(r'[,;\n]', legacy)] if legacy else []
+    if not isinstance(supplied, list) or len(supplied) > MAX_TICKETS_PER_ORDER:
+        return jsonify(error='Lista de boletos inválida.'), 400
+    if any(not isinstance(x, str) for x in supplied):
+        return jsonify(error='Los números de boletos deben ser texto.'), 400
+    parts = [x.strip() for x in supplied]
+    if any(x and (len(x) > 30 or not x.isdecimal() or not x.isascii()) for x in parts):
+        return jsonify(error='Cada casilla debe contener solo dígitos (0-9).'), 400
+    if any(x and int(x) == 0 for x in parts):
+        return jsonify(error='Los números deben ser mayores que cero.'), 400
+    if any(not x for x in parts) and any(parts):
+        return jsonify(error='Completa todos los espacios de boletos o déjalos todos vacíos.'), 400
+    canonical = [str(int(x)) for x in parts if x]
     if len(canonical) != len(set(canonical)):
         return jsonify(error='Hay números de boletos repetidos en esta compra.'), 409
     with conn() as c:
@@ -213,7 +223,7 @@ def update_purchase_status(order_id):
             row = c.execute('SELECT status,quantity FROM purchase_requests WHERE id=%s FOR UPDATE', (order_id,)).fetchone()
             if not row:
                 return jsonify(error='No encontrado'), 404
-            if len(canonical) > row['quantity']:
+            if len(parts) > row['quantity']:
                 return jsonify(error='No puedes asignar más boletos que los comprados.'), 400
             if new_status == 'delivered':
                 if row['status'] not in ('approved','delivered'):
@@ -233,5 +243,5 @@ def update_purchase_status(order_id):
                     return jsonify(error='El boleto '+sorted(collision, key=int)[0]+' ya está asignado a la solicitud '+other['id']+'.'), 409
             c.execute("""UPDATE purchase_requests
                 SET status=%s, printed_ticket_numbers=%s, updated_at=now()
-                WHERE id=%s""", (new_status, ', '.join(parts) if parts else None, order_id))
+                WHERE id=%s""", (new_status, ', '.join(parts) if canonical else None, order_id))
     return jsonify(ok=True,status=new_status,demo=False)

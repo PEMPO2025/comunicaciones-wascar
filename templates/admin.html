@@ -9,7 +9,7 @@ button:disabled{opacity:.5;cursor:wait}.card{background:#2c143b;padding:16px;bor
 select,input{padding:10px;border-radius:8px;max-width:100%;font:inherit}
 input{width:100%}label{display:block;margin:12px 0 5px}.notice{padding:12px;border-radius:8px;margin:12px 0;display:none}
 .success{background:#075b48}.error{background:#852233}.info{background:#25385f}
-.receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
+.ticket-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 14px;margin:10px 0 18px}.ticket-grid label{font-size:13px}.receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
 small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 </style></head><body><div class="box">
 <a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes</h2>
@@ -52,19 +52,30 @@ async function load(){
    const receipt=el('a','Ver comprobante');receipt.href='/api/purchase-requests/'+encodeURIComponent(o.id)+'/receipt';receipt.target='_blank';receipt.rel='noopener noreferrer';receipt.className='action';
    c.appendChild(receipt);
    const img=el('img');img.className='receipt';img.alt='Comprobante de pago';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
-   const lab=el('label','Números impresos de los boletos físicos (separados por comas)');c.appendChild(lab);
-   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=2000;c.appendChild(numbers);
-    para(c,'Asigna hasta '+o.quantity+' número(s) únicos. Puedes registrar los boletos después de aprobar el pago. Una persona puede comprar varias veces.');
+    const title=el('h4','Asignación de boletos físicos ('+o.quantity+' casilla(s))');c.appendChild(title);
+    const prior=(o.printed_ticket_numbers||'').split(/[,;\n]/).map(x=>x.trim()).filter(Boolean);
+    const ticketFields=[];
+    const ticketGrid=el('div');ticketGrid.className='ticket-grid';
+    for(let i=0;i<o.quantity;i++){
+      const wrapper=el('div');
+      const label=el('label','Boleto '+(i+1)+' de '+o.quantity);
+      const field=el('input');field.type='text';field.inputMode='numeric';field.autocomplete='off';field.maxLength=30;
+      field.placeholder='Número impreso';field.value=prior[i]||'';
+      wrapper.append(label,field);ticketGrid.appendChild(wrapper);ticketFields.push(field);
+    }
+    c.appendChild(ticketGrid);
+    if(prior.length>o.quantity)para(c,'ATENCIÓN: esta solicitud tiene más números guardados que boletos comprados. Revisa antes de guardar.');
+    para(c,'Introduce el número impreso en cada boleto. Los números deben ser únicos en todas las compras.');
    const status=choice([['pending','Pendiente'],['approved','Pago aprobado'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp']],o.status);
    const save=btn('Guardar estado',async()=>{
     save.disabled=true;
     try{
-     await api('/api/purchase-requests/'+encodeURIComponent(o.id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status.value,printed_ticket_numbers:numbers.value.trim()})});
+     await api('/api/purchase-requests/'+encodeURIComponent(o.id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status.value,ticket_numbers:ticketFields.map(f=>f.value.trim())})});
      notify('Estado y boletos guardados: '+o.id,'success');await load();
     }catch(e){notify('No se pudo guardar: '+e.message,'error');}finally{save.disabled=false;}
    });
-   const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}if(!numbers.value.trim()){notify('Escribe los números impresos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,numbers.value.trim());});
-   c.appendChild(el('p','Para enviar: confirma el pago, guarda el estado Aprobado, registra los números impresos y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
+   const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}const assigned=ticketFields.map(f=>f.value.trim());if(assigned.some(x=>!x)){notify('Completa todos los números de boletos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,assigned.join(', '));});
+   c.appendChild(el('p','Para enviar: confirma el pago, registra un número en cada casilla, guarda el estado Aprobado y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
    c.append(status,save,send);records.appendChild(c);
   }
   const legacy=$('legacy');legacy.replaceChildren();
