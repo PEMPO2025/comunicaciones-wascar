@@ -197,16 +197,41 @@ def update_purchase_status(order_id):
     new_status = data.get('status')
     if new_status not in ('pending','approved','rejected','delivered'):
         return jsonify(error='Estado inválido'), 400
-    numbers = str(data.get('printed_ticket_numbers') or '').strip()[:500]
-    if new_status == 'delivered' and not numbers:
-        return jsonify(error='Registra los números impresos antes de marcar entregado.'), 400
+    raw_numbers = str(data.get('printed_ticket_numbers') or '').strip()
+    if raw_numbers and not re.fullmatch(r'\\d+(?:\\s*[,;\\n]\\s*\\d+)*', raw_numbers):
+        return jsonify(error='Escribe solamente números separados por comas.'), 400
+    parts = [p.strip() for p in re.split(r'[,;\\n]', raw_numbers)] if raw_numbers else []
+    canonical = [str(int(p)) for p in parts]
+    if any(int(p) == 0 for p in parts):
+        return jsonify(error='Los números de boletos deben ser mayores que cero.'), 400
+    if len(canonical) != len(set(canonical)):
+        return jsonify(error='Hay números de boletos repetidos en esta compra.'), 409
     with conn() as c:
-        row = c.execute('SELECT status FROM purchase_requests WHERE id=%s FOR UPDATE', (order_id,)).fetchone()
-        if not row: return jsonify(error='No encontrado'), 404
-        if new_status == 'delivered' and row['status'] not in ('approved','delivered'):
-            return jsonify(error='Confirma primero el pago.'), 409
-        changed = c.execute("""UPDATE purchase_requests
-            SET status=%s,printed_ticket_numbers=CASE WHEN %s<>'' THEN %s ELSE printed_ticket_numbers END,
-            updated_at=now() WHERE id=%s RETURNING id""",
-            (new_status,numbers,numbers,order_id)).fetchone()
-    return jsonify(ok=bool(changed),status=new_status,demo=True)
+        with c.transaction():
+            # Serializa todas las asignaciones, incluso si dos administradores guardan a la vez.
+            c.execute('SELECT pg_advisory_xact_lock(20261231)')
+            row = c.execute('SELECT status,quantity FROM purchase_requests WHERE id=%s FOR UPDATE', (order_id,)).fetchone()
+            if not row:
+                return jsonify(error='No encontrado'), 404
+            if len(canonical) > row['quantity']:
+                return jsonify(error='No puedes asignar más boletos que los comprados.'), 400
+            if new_status == 'delivered':
+                if row['status'] not in ('approved','delivered'):
+                    return jsonify(error='Confirma primero el pago.'), 409
+                if len(canonical) != row['quantity']:
+                    return jsonify(error='Debes registrar todos los boletos antes de marcar Entregado.'), 400
+            if canonical and new_status not in ('approved','delivered'):
+                return jsonify(error='Aprueba el pago antes de asignar números.'), 409
+            others = c.execute(
+                "SELECT id,printed_ticket_numbers FROM purchase_requests WHERE id<>%s AND printed_ticket_numbers IS NOT NULL AND printed_ticket_numbers<>''",
+                (order_id,)).fetchall()
+            wanted = set(canonical)
+            for other in others:
+                existing = {str(int(x)) for x in re.findall(r'\\d+', other['printed_ticket_numbers'])}
+                collision = wanted.intersection(existing)
+                if collision:
+                    return jsonify(error='El boleto '+sorted(collision, key=int)[0]+' ya está asignado a la solicitud '+other['id']+'.'), 409
+            c.execute("""UPDATE purchase_requests
+                SET status=%s, printed_ticket_numbers=%s, updated_at=now()
+                WHERE id=%s""", (new_status, ', '.join(parts) if parts else None, order_id))
+    return jsonify(ok=True,status=new_status,demo=False)

@@ -53,13 +53,14 @@ async function load(){
    c.appendChild(receipt);
    const img=el('img');img.className='receipt';img.alt='Comprobante de pago';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
    const lab=el('label','Números impresos de los boletos físicos (separados por comas)');c.appendChild(lab);
-   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=500;c.appendChild(numbers);
+   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=2000;c.appendChild(numbers);
+    para(c,'Asigna hasta '+o.quantity+' número(s) únicos. Puedes registrar los boletos después de aprobar el pago. Una persona puede comprar varias veces.');
    const status=choice([['pending','Pendiente'],['approved','Pago aprobado'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp']],o.status);
    const save=btn('Guardar estado',async()=>{
     save.disabled=true;
     try{
      await api('/api/purchase-requests/'+encodeURIComponent(o.id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status.value,printed_ticket_numbers:numbers.value.trim()})});
-     notify('Estado actualizado: '+o.id,'success');await load();
+     notify('Estado y boletos guardados: '+o.id,'success');await load();
     }catch(e){notify('No se pudo guardar: '+e.message,'error');}finally{save.disabled=false;}
    });
    const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}if(!numbers.value.trim()){notify('Escribe los números impresos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,numbers.value.trim());});
