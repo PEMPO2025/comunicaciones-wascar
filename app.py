@@ -1,5 +1,4 @@
 import os, secrets, hmac, re, io
-from psycopg import errors
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, Response, send_file
 import psycopg
@@ -15,7 +14,6 @@ if not ADMIN_USER or not ADMIN_PASSWORD: raise RuntimeError('ADMIN_USER and ADMI
 PRICE_PER_TICKET = 1000
 MAX_TICKETS_PER_ORDER = 100
 MAX_RECEIPT_BYTES = 5 * 1024 * 1024
-SALES_ENABLED = os.environ.get('SALES_ENABLED', '').lower() == 'true'
 app.config['MAX_CONTENT_LENGTH'] = MAX_RECEIPT_BYTES + 128 * 1024
 
 def conn():
@@ -48,15 +46,6 @@ def init():
             printed_ticket_numbers TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
-        c.execute("ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS bank TEXT")
-        c.execute("ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS is_live BOOLEAN NOT NULL DEFAULT FALSE")
-        c.execute("ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ")
-        c.execute("ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ")
-        c.execute("""CREATE TABLE IF NOT EXISTS assigned_tickets (
-            ticket_number TEXT PRIMARY KEY,
-            order_id TEXT NOT NULL REFERENCES purchase_requests(id),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )""")
 init()
 
 def admin_required(f):
@@ -77,19 +66,18 @@ def headers(resp):
     return resp
 
 @app.get('/')
-def index(): return render_template('index.html', sales_enabled=SALES_ENABLED)
+def index(): return render_template('index.html')
 
 @app.get('/admin')
 @admin_required
 def admin(): return render_template('admin.html')
 
 @app.get('/health')
-def health(): return {'ok': True, 'mode': 'production' if SALES_ENABLED else 'paused'}
+def health(): return {'ok': True, 'mode': 'demo'}
 
 # Preserve the old demonstration form until index.html is updated.
 @app.post('/api/orders')
 def create_legacy():
-    return jsonify(error='El formulario antiguo está deshabilitado.'), 410
     data = request.get_json(silent=True) or {}
     name = str(data.get('name', '')).strip()[:120]
     phone = str(data.get('phone', '')).strip()[:40]
@@ -108,7 +96,7 @@ def create_legacy():
             a, b = secrets.SystemRandom().sample(available, 2)
             ident = 'DEMO-' + secrets.token_hex(5).upper()
             c.execute('INSERT INTO demo_orders(id,name,phone,address,payment_method,payment_reference,ticket1,ticket2,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)', (ident,name,phone,address,method,ref,a,b,'pending'))
-    return jsonify(id=ident,tickets=[f'{a:05d}',f'{b:05d}'],status='pending',demo=False), 201
+    return jsonify(id=ident,tickets=[f'{a:05d}',f'{b:05d}'],status='pending',demo=True), 201
 
 @app.get('/api/orders')
 @admin_required
@@ -143,11 +131,6 @@ def detect_image(raw):
 
 @app.post('/api/purchase-requests')
 def create_purchase_request():
-    if not SALES_ENABLED:
-        return jsonify(error='Las ventas aún no están habilitadas. No realices transferencias.'), 503
-    bank = request.form.get('bank', '')
-    if bank not in ('banreservas','popular'):
-        return jsonify(error='Selecciona la cuenta bancaria de destino.'), 400
     name = request.form.get('name', '').strip()[:120]
     phone = request.form.get('phone', '').strip()[:40]
     address = request.form.get('address', '').strip()[:200]
@@ -176,24 +159,22 @@ def create_purchase_request():
     total = quantity * PRICE_PER_TICKET
     with conn() as c:
         c.execute("""INSERT INTO purchase_requests
-            (id,name,phone,address,payment_method,payment_reference,quantity,unit_price,total,receipt_data,receipt_mime,bank,is_live)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)""",
-            (ident,name,phone,address,method,reference,quantity,PRICE_PER_TICKET,total,raw,mime,bank))
-    return jsonify(id=ident,quantity=quantity,unit_price=PRICE_PER_TICKET,total=total,status='pending',demo=False), 201
+            (id,name,phone,address,payment_method,payment_reference,quantity,unit_price,total,receipt_data,receipt_mime)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (ident,name,phone,address,method,reference,quantity,PRICE_PER_TICKET,total,raw,mime))
+    return jsonify(id=ident,quantity=quantity,unit_price=PRICE_PER_TICKET,total=total,status='pending',demo=True), 201
 
 @app.get('/api/purchase-requests')
 @admin_required
 def list_purchase_requests():
     with conn() as c:
         rows = c.execute("""SELECT id,name,phone,address,payment_method,payment_reference,
-            quantity,unit_price,total,status,printed_ticket_numbers,bank,is_live,approved_at,delivered_at,created_at,updated_at
+            quantity,unit_price,total,status,printed_ticket_numbers,created_at,updated_at
             FROM purchase_requests ORDER BY created_at DESC LIMIT 500""").fetchall()
     for r in rows:
         r['created_at'] = r['created_at'].isoformat()
         r['updated_at'] = r['updated_at'].isoformat()
-        for key in ('approved_at','delivered_at'):
-            if r[key]: r[key] = r[key].isoformat()
-    return jsonify(orders=rows, demo=False)
+    return jsonify(orders=rows, demo=True)
 
 @app.get('/api/purchase-requests/<order_id>/receipt')
 @admin_required
@@ -210,53 +191,16 @@ def update_purchase_status(order_id):
     new_status = data.get('status')
     if new_status not in ('pending','approved','rejected','delivered'):
         return jsonify(error='Estado inválido'), 400
-    raw = str(data.get('printed_ticket_numbers') or '').strip()
-    numbers = [v.strip() for v in raw.split(',') if v.strip()]
-    if len(numbers) > MAX_TICKETS_PER_ORDER or any(not re.fullmatch(r'[0-9]{1,10}', n) for n in numbers):
-        return jsonify(error='Escribe números de boletos separados por comas, solo dígitos.'), 400
-    # Canonicalize leading zeros: 00025 and 25 refer to the same physical number.
-    canonical = [str(int(n)) for n in numbers]
-    if len(set(canonical)) != len(canonical):
-        return jsonify(error='Hay números repetidos en esta solicitud.'), 409
-    try:
-        with conn() as c:
-            with c.transaction():
-                row = c.execute('SELECT * FROM purchase_requests WHERE id=%s FOR UPDATE', (order_id,)).fetchone()
-                if row is None: return jsonify(error='Solicitud no encontrada'), 404
-                if not row['is_live']:
-                    return jsonify(error='Registro de demostración: no puede aprobarse como venta real.'), 409
-                if not SALES_ENABLED:
-                    return jsonify(error='Ventas pausadas: no se pueden aprobar solicitudes.'), 409
-                current = row['status']
-                if current == 'delivered' and new_status != 'delivered':
-                    return jsonify(error='Una entrega completada no puede cambiar de estado.'), 409
-                if current == 'rejected' and new_status != 'rejected':
-                    return jsonify(error='Una solicitud rechazada no puede reabrirse.'), 409
-                if current == 'approved' and new_status not in ('approved','delivered'):
-                    return jsonify(error='Un pago aprobado no puede volver a pendiente o rechazado.'), 409
-                if new_status == 'delivered' and current not in ('approved','delivered'):
-                    return jsonify(error='Primero aprueba el pago y guarda los números.'), 409
-                existing = [r['ticket_number'] for r in c.execute(
-                    'SELECT ticket_number FROM assigned_tickets WHERE order_id=%s ORDER BY ticket_number', (order_id,))]
-                if new_status in ('approved','delivered'):
-                    if not numbers and existing:
-                        canonical = existing
-                    if len(canonical) != row['quantity']:
-                        return jsonify(error=f'Debes registrar exactamente {row["quantity"]} números físicos.'), 400
-                    if existing and set(existing) != set(canonical):
-                        return jsonify(error='Los números ya asignados no pueden modificarse después de aprobar el pago.'), 409
-                    if not existing:
-                        for number in canonical:
-                            c.execute('INSERT INTO assigned_tickets(ticket_number,order_id) VALUES (%s,%s)', (number,order_id))
-                elif canonical:
-                    return jsonify(error='Solo puedes asignar números al aprobar el pago.'), 400
-                stored = ', '.join(numbers) if numbers else row['printed_ticket_numbers']
-                c.execute("""UPDATE purchase_requests SET status=%s,
-                    printed_ticket_numbers=%s,
-                    approved_at=CASE WHEN %s='approved' AND approved_at IS NULL THEN now() ELSE approved_at END,
-                    delivered_at=CASE WHEN %s='delivered' AND delivered_at IS NULL THEN now() ELSE delivered_at END,
-                    updated_at=now() WHERE id=%s""",
-                    (new_status,stored,new_status,new_status,order_id))
-    except errors.UniqueViolation:
-        return jsonify(error='Uno o más números físicos ya están asignados a otro comprador.'), 409
-    return jsonify(ok=True,status=new_status,demo=False)
+    numbers = str(data.get('printed_ticket_numbers') or '').strip()[:500]
+    if new_status == 'delivered' and not numbers:
+        return jsonify(error='Registra los números impresos antes de marcar entregado.'), 400
+    with conn() as c:
+        row = c.execute('SELECT status FROM purchase_requests WHERE id=%s FOR UPDATE', (order_id,)).fetchone()
+        if not row: return jsonify(error='No encontrado'), 404
+        if new_status == 'delivered' and row['status'] not in ('approved','delivered'):
+            return jsonify(error='Confirma primero el pago.'), 409
+        changed = c.execute("""UPDATE purchase_requests
+            SET status=%s,printed_ticket_numbers=CASE WHEN %s<>'' THEN %s ELSE printed_ticket_numbers END,
+            updated_at=now() WHERE id=%s RETURNING id""",
+            (new_status,numbers,numbers,order_id)).fetchone()
+    return jsonify(ok=bool(changed),status=new_status,demo=True)
