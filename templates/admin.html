@@ -1,205 +1,83 @@
-
 <!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wascar | Administración</title>
 <style>
-body{font:15px system-ui;background:#140821;color:white;margin:0;padding:25px}
-h1{color:#ffe700}
-a{color:#2fffea}
-.box{max-width:1100px;margin:auto}
-button{background:#e61a80;color:white;border:0;padding:10px 14px;border-radius:8px;cursor:pointer}
-button:disabled{opacity:.5;cursor:wait}
-.card{background:#2c143b;padding:16px;border:1px solid #e01cc2;border-radius:12px;margin:12px 0}
-select{padding:10px;border-radius:8px}
-#records{overflow-wrap:anywhere}
-.notice{padding:12px;border-radius:8px;margin:12px 0;display:none}
-.success{background:#075b48;color:white}
-.error{background:#852233;color:white}
-.info{background:#25385f;color:white}
-</style>
-</head>
-<body>
-<div class="box">
-<a href="/">← Página principal</a>
-<h1>COMUNICACIONES WASCAR</h1>
-<h2>Panel de solicitudes · DEMOSTRACIÓN</h2>
-<p>Sin dinero real ni boletos válidos.</p>
-
-<div class="card">
-<button id="load">Actualizar solicitudes</button>
-<span id="stats"></span>
-</div>
-
+*{box-sizing:border-box}body{font:15px system-ui;background:#140821;color:white;margin:0;padding:25px}
+h1{color:#ffe700}a{color:#2fffea}.box{max-width:1100px;margin:auto}
+button,.action{background:#e61a80;color:white;border:0;padding:10px 14px;border-radius:8px;cursor:pointer;display:inline-block;margin:4px 4px 4px 0}
+button:disabled{opacity:.5;cursor:wait}.card{background:#2c143b;padding:16px;border:1px solid #e01cc2;border-radius:12px;margin:12px 0}
+select,input{padding:10px;border-radius:8px;max-width:100%;font:inherit}
+input{width:100%}label{display:block;margin:12px 0 5px}.notice{padding:12px;border-radius:8px;margin:12px 0;display:none}
+.success{background:#075b48}.error{background:#852233}.info{background:#25385f}
+.receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
+small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+</style></head><body><div class="box">
+<a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes · DEMOSTRACIÓN</h2>
+<p>Sin dinero real ni boletos válidos. El envío de fotografías de boletos se realiza manualmente en WhatsApp.</p>
+<div class="card"><button id="load">Actualizar solicitudes</button><span id="stats"></span></div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
-<div id="records">Cargando solicitudes...</div>
+<h2>Solicitudes nuevas (cantidad variable)</h2><div id="records">Cargando...</div>
+<details><summary>Solicitudes antiguas de demostración</summary><div id="legacy"></div></details>
 </div>
-
 <script>
-const $ = id => document.getElementById(id);
-
-const esc = s => String(s ?? '').replace(
-  /[&<>"']/g,
-  c => ({
-    '&':'&amp;',
-    '<':'&lt;',
-    '>':'&gt;',
-    '"':'&quot;',
-    "'":'&#39;'
-  }[c])
-);
-
-function notify(message,type='info'){
-  const el=$('notice');
-  el.textContent=message;
-  el.className='notice '+type;
-  el.style.display='block';
+const $=id=>document.getElementById(id);
+const money=n=>'RD$'+Number(n).toLocaleString('en-US');
+function notify(msg,type='info'){let el=$('notice');el.textContent=msg;el.className='notice '+type;el.style.display='block';}
+function el(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;}
+function para(parent,text){parent.appendChild(el('p',text));}
+function btn(text,fn){const b=el('button',text);b.type='button';b.onclick=fn;return b;}
+function choice(values,selected){const s=el('select');for(const [v,t] of values){const o=el('option',t);o.value=v;s.appendChild(o);}s.value=selected;return s;}
+async function api(url,options){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...options});let data;try{data=await res.json();}catch{data={};}if(!res.ok)throw Error(data.error||'Error HTTP '+res.status);return data;}
+function whatsapp(phone,id,qty,total,numbers){
+ const digits=String(phone).replace(/\D/g,'');
+ const normalized=digits.length===10?'1'+digits:digits;
+ if(normalized.length<11||normalized.length>15){notify('Número de WhatsApp inválido: revisa el teléfono del cliente.','error');return;}
+ const msg='Hola, te contactamos de Comunicaciones Wascar sobre tu solicitud '+id+'. Hemos verificado tu solicitud de '+qty+' boleto(s) ('+money(total)+'). Los números impresos son: '+numbers+'. A continuación te enviaré manualmente la fotografía de tus boletos físicos.';
+ window.open('https://wa.me/'+normalized+'?text='+encodeURIComponent(msg),'_blank','noopener,noreferrer');
 }
-
 async function load(){
-  const btn=$('load');
-  btn.disabled=true;
-  btn.textContent='Actualizando...';
-
-  try{
-    const res=await fetch('/api/orders',{
-      cache:'no-store',
-      credentials:'same-origin'
-    });
-
-    if(!res.ok){
-      throw new Error('Error HTTP '+res.status);
-    }
-
-    const data=await res.json();
-
-    if(!Array.isArray(data.orders)){
-      throw new Error('Respuesta de solicitudes inválida');
-    }
-
-    $('stats').textContent=
-      data.orders.length+' solicitudes (máximo 500)';
-
-    const records=$('records');
-    records.replaceChildren();
-
-    if(data.orders.length===0){
-      records.textContent='No hay solicitudes.';
-    }
-
-    for(const o of data.orders){
-      const card=document.createElement('div');
-      card.className='card';
-
-      const title=document.createElement('b');
-      title.textContent=String(o.id ?? '');
-
-      const details=document.createElement('p');
-      details.textContent=
-        `${o.name ?? ''} · ${o.phone ?? ''}`;
-
-      const address=document.createElement('p');
-      address.textContent='Dirección: '+(o.address ?? '');
-
-      const reference=document.createElement('p');
-      reference.textContent=
-        'Referencia ficticia: '+(o.payment_reference ?? '')+
-        ' · '+(o.payment_method ?? '');
-
-      const tickets=document.createElement('p');
-      tickets.textContent=
-        'Números ficticios: '+(o.ticket1 ?? '')+
-        ' y '+(o.ticket2 ?? '');
-
-      const status=document.createElement('p');
-      status.textContent='Estado actual: '+(o.status ?? '');
-
-      const select=document.createElement('select');
-
-      const options=[
-        ['pending','Pendiente'],
-        ['approved','Aprobado (simulado)'],
-        ['rejected','Rechazado (simulado)']
-      ];
-
-      for(const [value,label] of options){
-        const option=document.createElement('option');
-        option.value=value;
-        option.textContent=label;
-        select.appendChild(option);
-      }
-
-      select.value=o.status;
-
-      const save=document.createElement('button');
-      save.textContent='Guardar estado';
-      save.style.marginLeft='8px';
-
-      save.onclick=async()=>{
-        save.disabled=true;
-        save.textContent='Guardando...';
-
-        try{
-          const response=await fetch('/api/status',{
-            method:'POST',
-            credentials:'same-origin',
-            headers:{
-              'Content-Type':'application/json'
-            },
-            body:JSON.stringify({
-              id:o.id,
-              status:select.value
-            })
-          });
-
-          if(!response.ok){
-            throw new Error('Error HTTP '+response.status);
-          }
-
-          notify(
-            'Estado guardado correctamente para '+o.id,
-            'success'
-          );
-
-          await load(false);
-
-        }catch(error){
-          notify(
-            'No se pudo guardar: '+error.message,
-            'error'
-          );
-        }finally{
-          save.disabled=false;
-          save.textContent='Guardar estado';
-        }
-      };
-
-      card.append(
-        title,details,address,reference,
-        tickets,status,select,save
-      );
-
-      records.appendChild(card);
-    }
-
-    $('stats').textContent+=
-      ' · Actualizado: '+new Date().toLocaleTimeString('es-DO');
-
-  }catch(error){
-    notify(
-      'No se pudieron cargar las solicitudes: '+error.message,
-      'error'
-    );
-  }finally{
-    btn.disabled=false;
-    btn.textContent='Actualizar solicitudes';
+ const loadBtn=$('load');loadBtn.disabled=true;loadBtn.textContent='Actualizando...';
+ try{
+  const [data,old]=await Promise.all([api('/api/purchase-requests'),api('/api/orders')]);
+  const records=$('records');records.replaceChildren();
+  $('stats').textContent=data.orders.length+' nuevas · '+old.orders.length+' antiguas · Actualizado: '+new Date().toLocaleTimeString('es-DO');
+  if(!data.orders.length)records.textContent='No hay solicitudes nuevas.';
+  for(const o of data.orders){
+   const c=el('article');c.className='card';
+   c.appendChild(el('h3',o.id));
+   para(c,(o.name||'')+' · '+(o.phone||'')+' · '+o.quantity+' boleto(s) · '+money(o.total));
+   para(c,'Dirección: '+o.address);
+   para(c,'Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
+   para(c,'Estado actual: '+o.status);
+   const receipt=el('a','Ver comprobante');receipt.href='/api/purchase-requests/'+encodeURIComponent(o.id)+'/receipt';receipt.target='_blank';receipt.rel='noopener noreferrer';receipt.className='action';
+   c.appendChild(receipt);
+   const img=el('img');img.className='receipt';img.alt='Comprobante de prueba';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
+   const lab=el('label','Números impresos de los boletos físicos (separados por comas)');c.appendChild(lab);
+   const numbers=el('input');numbers.value=o.printed_ticket_numbers||'';numbers.placeholder='Ej.: 00025, 00026';numbers.maxLength=500;c.appendChild(numbers);
+   const status=choice([['pending','Pendiente'],['approved','Pago aprobado (simulado)'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp (simulado)']],o.status);
+   const save=btn('Guardar estado',async()=>{
+    save.disabled=true;
+    try{
+     await api('/api/purchase-requests/'+encodeURIComponent(o.id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status.value,printed_ticket_numbers:numbers.value.trim()})});
+     notify('Estado actualizado: '+o.id,'success');await load();
+    }catch(e){notify('No se pudo guardar: '+e.message,'error');}finally{save.disabled=false;}
+   });
+   const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}if(!numbers.value.trim()){notify('Escribe los números impresos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,numbers.value.trim());});
+   c.appendChild(el('p','Para enviar: confirma el pago, guarda el estado Aprobado, registra los números impresos y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
+   c.append(status,save,send);records.appendChild(c);
   }
+  const legacy=$('legacy');legacy.replaceChildren();
+  if(!old.orders.length)legacy.textContent='Sin registros anteriores.';
+  for(const o of old.orders){
+   const c=el('article');c.className='card';c.appendChild(el('b',o.id));
+   para(c,o.name+' · '+o.phone+' · Dirección: '+o.address);
+   para(c,'Números ficticios: '+o.ticket1+' y '+o.ticket2+' · Estado: '+o.status);
+   const s=choice([['pending','Pendiente'],['approved','Aprobado (simulado)'],['rejected','Rechazado']],o.status);
+   const save=btn('Guardar estado anterior',async()=>{save.disabled=true;try{await api('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:o.id,status:s.value})});notify('Estado anterior guardado','success');await load();}catch(e){notify(e.message,'error');}finally{save.disabled=false;}});
+   c.append(s,save);legacy.appendChild(c);
+  }
+ }catch(e){notify('Error al cargar: '+e.message,'error');}
+ finally{loadBtn.disabled=false;loadBtn.textContent='Actualizar solicitudes';}
 }
-
-$('load').onclick=()=>load();
-load();
-</script>
-</body>
-</html>
+$('load').onclick=load;load();
+</script></body></html>
