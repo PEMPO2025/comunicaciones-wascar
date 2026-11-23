@@ -108,10 +108,10 @@ body{background:#10051d;color:#fff6ec}
 <p><strong>Banreservas · Ahorros</strong><br><span style="font-size:1.3em;font-weight:800">1010371043</span> <button type="button" class="copy-account" data-account="1010371043">Copiar</button></p>
 <p><strong>Banco Popular · Ahorros</strong><br><span style="font-size:1.3em;font-weight:800">851375741</span> <button type="button" class="copy-account" data-account="851375741">Copiar</button></p>
 <p><strong>Titular de ambas cuentas:</strong> MIGUEL ÁNGEL PÉREZ AQUINO</p>
-<p>Verifica el titular antes de transferir. No se aceptan pagos automáticamente: el administrador comprobará el ingreso bancario.</p></div>
+<p>Verifica el titular antes de transferir. No se aceptan pagos automáticamente: el administrador comprobará el ingreso bancario.</p></div>{% else %}<div class="notice" style="display:block">Las ventas todavía no están habilitadas. No realices transferencias.</div>{% endif %}
 <div class="field"><label for="reference">Número de referencia de la transferencia o depósito</label><input id="reference" minlength="4" placeholder="Escribe la referencia que aparece en tu comprobante" required/></div>
 <div class="field"><label for="receipt">Foto del comprobante de pago (JPG, PNG o WebP; máximo 5 MB)</label><input id="receipt" type="file" accept="image/jpeg,image/png,image/webp" required/></div>
-<div class="notice">⚠️ PAGO POR TRANSFERENCIA: No transfieras dinero ni subas comprobantes bancarios auténticos. Utiliza una imagen ficticia para probar el sistema. La foto se almacenará en la base de datos y solo el administrador podrá consultarla.</div>
+<div class="notice">El comprobante será revisado por el administrador. La solicitud no equivale a un boleto válido hasta confirmar el pago y entregar los boletos físicos.</div>
 <div class="field"><label><input id="adult" required style="width:auto" type="checkbox"/> Soy mayor de 18 años y acepto que la compra queda pendiente de verificación bancaria.</label></div>
 <button class="btn submit" type="submit" id="submit-buy">Enviar solicitud por RD$1,000 →</button>
 <div class="result" id="result" role="status" aria-live="polite"></div></form></div></div></section>
