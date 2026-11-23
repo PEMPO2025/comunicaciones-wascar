@@ -166,7 +166,7 @@ def create_purchase_request():
     with conn() as c:
         c.execute("""INSERT INTO purchase_requests
             (id,name,phone,address,payment_method,payment_reference,quantity,unit_price,total,receipt_data,receipt_mime,bank)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (ident,name,phone,address,method,reference,quantity,PRICE_PER_TICKET,total,raw,mime,bank))
     return jsonify(id=ident,quantity=quantity,unit_price=PRICE_PER_TICKET,total=total,status='pending',demo=False), 201
 
