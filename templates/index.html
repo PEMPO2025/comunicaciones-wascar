@@ -111,6 +111,9 @@ body{background:#10051d;color:#fff6ec}
 <p><strong>Titular:</strong> MIGUEL ÁNGEL PÉREZ AQUINO</p>
 <p>Verifica el titular antes de transferir. La solicitud queda pendiente hasta comprobar el ingreso en el banco.</p>
 </div>
+<div style="margin:14px 0">
+<a class="btn secondary" href="https://wa.me/18092534186?text=Hola%2C%20quiero%20m%C3%A1s%20informaci%C3%B3n%20sobre%20la%20rifa%20de%20Comunicaciones%20Wascar." target="_blank" rel="noopener noreferrer" style="display:inline-block;text-align:center">💬 Consultar por WhatsApp</a>
+</div>
 <div class="field"><label for="reference">Referencia del pago</label><input id="reference" minlength="4" placeholder="Referencia de tu transferencia o depósito" required/></div>
 <div class="field"><label for="receipt">Foto del comprobante de pago (JPG, PNG o WebP; máximo 5 MB)</label><input id="receipt" type="file" accept="image/jpeg,image/png,image/webp" required/></div>
 <div class="notice">El comprobante se guarda para revisión administrativa. La solicitud no significa que el pago esté aprobado; verifica los datos bancarios antes de transferir.</div>
@@ -118,7 +121,7 @@ body{background:#10051d;color:#fff6ec}
 <button class="btn submit" type="submit" id="submit-buy">Enviar solicitud por RD$1,000 →</button>
 <div class="result" id="result" role="status" aria-live="polite"></div></form></div></div></section>
 <section class="section" id="como"><div class="wrap"><div class="center"><h2>¿Cómo participarás?</h2><p class="muted">Proceso de compra con confirmación manual.</p></div><div class="steps"><div class="step"><b>01</b><h3>Selecciona tus boletos</h3><p>Elige cuántos boletos físicos deseas solicitar.</p></div><div class="step"><b>02</b><h3>Completa tus datos y paga</h3><p>Realiza el pago mediante los métodos oficiales y envía tu comprobante.</p></div><div class="step"><b>03</b><h3>Recibe tu confirmación</h3><p>Una vez confirmado el pago, recibirás por WhatsApp una fotografía de tus boletos físicos.</p></div></div></div></section>
-<footer class="footer"><div class="wrap footergrid"><div><strong>COMUNICACIONES WASCAR</strong><p>Te Sigue Montando · Súper Rifa 2026</p><small>Comendador, Elías Piña · Las Matas de Farfán</small></div><div><strong>Contacto</strong><p>+1 (809) 253-4186</p><small>Transmisión del sorteo por Facebook y YouTube</small></div><div><strong>Importante</strong><p><small>Los boletos se asignan después de verificar el pago.</small></p></div></div></footer>
+<footer class="footer"><div class="wrap footergrid"><div><strong>COMUNICACIONES WASCAR</strong><p>Te Sigue Montando · Súper Rifa 2026</p><small>Comendador, Elías Piña · Las Matas de Farfán</small></div><div><strong>Contacto</strong><p><a href="https://wa.me/18092534186?text=Hola%2C%20quiero%20informaci%C3%B3n%20sobre%20la%20rifa." target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:12px 18px;border-radius:12px;background:#18a957;color:white;text-decoration:none;font-weight:700">💬 Abrir WhatsApp</a></p><small>Transmisión del sorteo por Facebook y YouTube</small></div><div><strong>Importante</strong><p><small>Los boletos se asignan después de verificar el pago.</small></p></div></div></footer>
 <script>
 const form=document.getElementById('buyform');
 const qty=document.getElementById('quantity');
@@ -166,6 +169,18 @@ form.addEventListener('submit',async function(e){
    const info=document.createElement('p');
    info.textContent='Código: '+data.id+' | Cantidad: '+data.quantity+' | Total: '+money(data.total)+'. Pendiente de verificación bancaria. Recibirás tus boletos físicos por WhatsApp cuando se confirme el pago.';
    r.appendChild(info);
+   const wa=document.createElement('a');
+   wa.className='btn secondary';
+   wa.target='_blank';wa.rel='noopener noreferrer';
+   wa.style.cssText='display:inline-block;margin-top:12px;text-align:center';
+   wa.textContent='💬 Enviar comprobante por WhatsApp';
+   const message='Hola, Comunicaciones Wascar. Registré mi solicitud '+data.id+' por '+data.quantity+' boleto(s), total '+money(data.total)+'. Quiero enviarles el comprobante de pago para su verificación.';
+   wa.href='https://wa.me/18092534186?text='+encodeURIComponent(message);
+   r.appendChild(wa);
+   const help=document.createElement('p');
+   help.textContent='Al abrir WhatsApp, adjunta manualmente la imagen del comprobante. El formulario ya guardó una copia en el sistema.';
+   r.appendChild(help);
+
    // Limpiar solamente cuando el servidor confirmó que guardó la solicitud.
    form.reset();
    for(const id of ['name','phone','city','reference','receipt']){
