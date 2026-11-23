@@ -10,13 +10,15 @@ select,input{padding:10px;border-radius:8px;max-width:100%;font:inherit}
 input{width:100%}label{display:block;margin:12px 0 5px}.notice{padding:12px;border-radius:8px;margin:12px 0;display:none}
 .success{background:#075b48}.error{background:#852233}.info{background:#25385f}
 .ticket-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 14px;margin:10px 0 18px}.ticket-grid label{font-size:13px}.receipt{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:8px;background:white;margin:12px 0}
-small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.searchbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.searchbar input{flex:1;min-width:190px;width:auto;background:white}.compact{padding:0;overflow:hidden}.compact summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.compact summary::-webkit-details-marker{display:none}.compact summary::before{content:'▸';color:#ffe700;font-size:18px}.compact[open] summary::before{content:'▾'}.compact summary strong{flex:1}.compact .content{padding:0 16px 16px;border-top:1px solid #674077}.pill{border-radius:99px;padding:5px 10px;background:#563062;font-size:12px}.pages{display:flex;gap:12px;align-items:center;justify-content:center;margin:18px 0}.pages button{min-width:100px}small{color:#e8d3ec}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 </style></head><body><div class="box">
 <a href="/">← Página principal</a><h1>COMUNICACIONES WASCAR</h1><h2>Panel de solicitudes</h2>
 <p>Verifica el ingreso bancario antes de aprobar. Envía manualmente las fotografías de los boletos físicos por WhatsApp.</p>
 <div class="card"><button id="load">Actualizar solicitudes</button><span id="stats"></span></div>
 <div id="notice" class="notice" role="status" aria-live="polite"></div>
-<h2>Solicitudes nuevas (cantidad variable)</h2><div id="records">Cargando...</div>
+<h2>Buscar solicitudes</h2>
+<div class="card searchbar"><label for="search" style="margin:0">🔎</label><input id="search" type="search" placeholder="Buscar por nombre, teléfono, código o boleto" autocomplete="off"><button id="searchBtn" type="button">Buscar</button><button id="clearBtn" type="button">Limpiar</button></div>
+<div id="records">Cargando...</div><div class="pages"><button id="prev" type="button">← Anterior</button><span id="pageInfo"></span><button id="next" type="button">Siguiente →</button></div>
 <details><summary>Solicitudes antiguas de demostración</summary><div id="legacy"></div></details>
 </div>
 <script>
@@ -35,24 +37,35 @@ function whatsapp(phone,id,qty,total,numbers){
  const msg='Hola, te contactamos de Comunicaciones Wascar sobre tu solicitud '+id+'. Hemos verificado tu solicitud de '+qty+' boleto(s) ('+money(total)+'). Los números impresos son: '+numbers+'. A continuación te enviaré manualmente la fotografía de tus boletos físicos.';
  window.open('https://wa.me/'+normalized+'?text='+encodeURIComponent(msg),'_blank','noopener,noreferrer');
 }
+let currentPage=1;let currentQuery='';
 async function load(){
  const loadBtn=$('load');loadBtn.disabled=true;loadBtn.textContent='Actualizando...';
  try{
-  const [data,old]=await Promise.all([api('/api/purchase-requests'),api('/api/orders')]);
+  const [data,old]=await Promise.all([api('/api/purchase-requests?page='+currentPage+'&q='+encodeURIComponent(currentQuery)),api('/api/orders')]);
   const records=$('records');records.replaceChildren();
-  $('stats').textContent=data.orders.length+' nuevas · '+old.orders.length+' antiguas · Actualizado: '+new Date().toLocaleTimeString('es-DO');
+  $('stats').textContent=data.total+' solicitudes encontradas · Actualizado: '+new Date().toLocaleTimeString('es-DO');
+  const pages=Math.max(1,Math.ceil(data.total/data.page_size));
+  $('pageInfo').textContent='Página '+currentPage+' de '+pages;
+  $('prev').disabled=currentPage<=1;$('next').disabled=currentPage>=pages;
   if(!data.orders.length)records.textContent='No hay solicitudes nuevas.';
   for(const o of data.orders){
-   const c=el('article');c.className='card';
-   c.appendChild(el('h3',o.id));
-   para(c,(o.name||'')+' · '+(o.phone||'')+' · '+o.quantity+' boleto(s) · '+money(o.total));
-   para(c,'Dirección: '+o.address);
-   para(c,'Banco: '+(o.bank==='banreservas'?'Banreservas':o.bank==='popular'?'Banco Popular':'No indicado (solicitud anterior)')+' · Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
-   para(c,'Estado actual: '+o.status);
+   const c=el('details');c.className='card compact';
+   const head=el('summary');
+   const name=el('strong',o.name||'Cliente sin nombre');
+   const meta=el('span',o.quantity+' boleto(s) · '+money(o.total));
+   const pill=el('span',o.status==='delivered'?'Entregado':o.status==='approved'?'Aprobado':o.status==='rejected'?'Rechazado':'Pendiente');pill.className='pill';
+   head.append(name,meta,pill);c.appendChild(head);
+   c.open=o.status==='pending';
+   const content=el('div');content.className='content';
+   content.appendChild(el('h3',o.id));
+   para(content,(o.name||'')+' · '+(o.phone||'')+' · '+o.quantity+' boleto(s) · '+money(o.total));
+   para(content,'Dirección: '+o.address);
+   para(content,'Banco: '+(o.bank==='banreservas'?'Banreservas':o.bank==='popular'?'Banco Popular':'No indicado (solicitud anterior)')+' · Método: '+o.payment_method+' · Referencia: '+o.payment_reference);
+   para(content,'Estado actual: '+o.status);
    const receipt=el('a','Ver comprobante');receipt.href='/api/purchase-requests/'+encodeURIComponent(o.id)+'/receipt';receipt.target='_blank';receipt.rel='noopener noreferrer';receipt.className='action';
-   c.appendChild(receipt);
-   const img=el('img');img.className='receipt';img.alt='Comprobante de pago';img.loading='lazy';img.src=receipt.href;c.appendChild(img);
-    const title=el('h4','Asignación de boletos físicos ('+o.quantity+' casilla(s))');c.appendChild(title);
+   content.appendChild(receipt);
+   const img=el('img');img.className='receipt';img.alt='Comprobante de pago';img.loading='lazy';img.src=receipt.href;content.appendChild(img);
+    const title=el('h4','Asignación de boletos físicos ('+o.quantity+' casilla(s))');content.appendChild(title);
     const prior=(o.printed_ticket_numbers||'').split(/[,;\n]/).map(x=>x.trim()).filter(Boolean);
     const ticketFields=[];
     const ticketGrid=el('div');ticketGrid.className='ticket-grid';
@@ -63,9 +76,9 @@ async function load(){
       field.placeholder='Número impreso';field.value=prior[i]||'';
       wrapper.append(label,field);ticketGrid.appendChild(wrapper);ticketFields.push(field);
     }
-    c.appendChild(ticketGrid);
-    if(prior.length>o.quantity)para(c,'ATENCIÓN: esta solicitud tiene más números guardados que boletos comprados. Revisa antes de guardar.');
-    para(c,'Introduce el número impreso en cada boleto. Los números deben ser únicos en todas las compras.');
+    content.appendChild(ticketGrid);
+    if(prior.length>o.quantity)para(content,'ATENCIÓN: esta solicitud tiene más números guardados que boletos comprados. Revisa antes de guardar.');
+    para(content,'Introduce el número impreso en cada boleto. Los números deben ser únicos en todas las compras.');
    const status=choice([['pending','Pendiente'],['approved','Pago aprobado'],['rejected','Rechazado'],['delivered','Entregado por WhatsApp']],o.status);
    const save=btn('Guardar estado',async()=>{
     save.disabled=true;
@@ -75,8 +88,8 @@ async function load(){
     }catch(e){notify('No se pudo guardar: '+e.message,'error');}finally{save.disabled=false;}
    });
    const send=btn('Abrir WhatsApp',()=>{if(!['approved','delivered'].includes(status.value)){notify('Primero guarda el estado Aprobado tras verificar el pago.','error');return;}const assigned=ticketFields.map(f=>f.value.trim());if(assigned.some(x=>!x)){notify('Completa todos los números de boletos antes de abrir WhatsApp.','error');return;}whatsapp(o.phone,o.id,o.quantity,o.total,assigned.join(', '));});
-   c.appendChild(el('p','Para enviar: confirma el pago, registra un número en cada casilla, guarda el estado Aprobado y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
-   c.append(status,save,send);records.appendChild(c);
+   content.appendChild(el('p','Para enviar: confirma el pago, registra un número en cada casilla, guarda el estado Aprobado y abre WhatsApp. Adjunta la fotografía manualmente. Marca Entregado después de enviarla.'));
+   content.append(status,save,send);c.appendChild(content);records.appendChild(c);
   }
   const legacy=$('legacy');legacy.replaceChildren();
   if(!old.orders.length)legacy.textContent='Sin registros anteriores.';
@@ -91,5 +104,11 @@ async function load(){
  }catch(e){notify('Error al cargar: '+e.message,'error');}
  finally{loadBtn.disabled=false;loadBtn.textContent='Actualizar solicitudes';}
 }
-$('load').onclick=load;load();
+$('load').onclick=load;
+$('searchBtn').onclick=()=>{currentQuery=$('search').value.trim();currentPage=1;load();};
+$('search').addEventListener('keydown',e=>{if(e.key==='Enter'){$('searchBtn').click();}});
+$('clearBtn').onclick=()=>{$('search').value='';currentQuery='';currentPage=1;load();};
+$('prev').onclick=()=>{if(currentPage>1){currentPage--;load();}};
+$('next').onclick=()=>{currentPage++;load();};
+load();
 </script></body></html>

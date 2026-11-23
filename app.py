@@ -173,14 +173,27 @@ def create_purchase_request():
 @app.get('/api/purchase-requests')
 @admin_required
 def list_purchase_requests():
+    query = request.args.get('q', '').strip()[:120]
+    try:
+        page = max(1, int(request.args.get('page', '1')))
+    except ValueError:
+        page = 1
+    page = min(page, 1000000)
+    size = 20
+    pattern = '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+    where = "WHERE name ILIKE %s ESCAPE '\\\\' OR phone ILIKE %s ESCAPE '\\\\' OR id ILIKE %s ESCAPE '\\\\' OR printed_ticket_numbers ILIKE %s ESCAPE '\\\\'"
+    params = (pattern, pattern, pattern, pattern)
     with conn() as c:
+        total = c.execute('SELECT COUNT(*) AS n FROM purchase_requests ' + (where if query else ''), params if query else ()).fetchone()['n']
         rows = c.execute("""SELECT id,name,phone,address,payment_method,payment_reference,
             quantity,unit_price,total,status,printed_ticket_numbers,bank,created_at,updated_at
-            FROM purchase_requests ORDER BY created_at DESC LIMIT 500""").fetchall()
+            FROM purchase_requests """ + (where if query else '') +
+            ' ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s',
+            (params if query else ()) + (size, (page - 1) * size)).fetchall()
     for r in rows:
         r['created_at'] = r['created_at'].isoformat()
         r['updated_at'] = r['updated_at'].isoformat()
-    return jsonify(orders=rows, demo=True)
+    return jsonify(orders=rows, total=total, page=page, page_size=size, demo=False)
 
 @app.get('/api/purchase-requests/<order_id>/receipt')
 @admin_required
